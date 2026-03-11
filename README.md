@@ -1,6 +1,6 @@
-# 📖 Markdown Reader
+# 📖 KYC 知识库
 
-一个基于 Flask 的 Web 端 Markdown 文件阅读器。支持目录浏览、文件渲染、代码高亮和用户认证。
+一个基于 Flask 的 Web 端 Markdown 知识库阅读器。支持目录浏览、文件渲染、代码高亮和用户认证。
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-3.0-green?logo=flask&logoColor=white)
@@ -72,17 +72,17 @@ python app.py
 
 | 用户名 | 密码 |
 |--------|------|
-| `admin` | `admin123` |
+| `admin` | `App@123` |
 
 > ⚠️ **安全提示**：生产环境中请务必修改默认密码。
 
 ### 修改默认管理员密码
 
-编辑 `app.py` 中第 40 行：
+编辑 `app.py` 中第 38 行：
 
 ```python
-_users['admin'] = generate_password_hash('admin123')
-#                                         ^^^^^^^^ 修改为你的密码
+_users['admin'] = generate_password_hash('App@123')
+#                                         ^^^^^^^^^^ 修改为你的密码
 ```
 
 ### 注册新用户
@@ -144,11 +144,21 @@ md_reader/
 ├── app.py                 # Flask 主应用（路由、API、用户认证）
 ├── config.py              # 配置文件
 ├── requirements.txt       # Python 依赖
+├── gunicorn.conf.py       # Gunicorn 生产服务器配置
+├── Dockerfile             # Docker 镜像构建
+├── docker-compose.yml     # Docker Compose 编排
+├── .env.example           # 环境变量模板
 ├── templates/
 │   ├── base.html          # 基础模板（通用样式、Flash 消息）
 │   ├── login.html         # 登录页面
 │   ├── register.html      # 注册页面
 │   └── index.html         # 主界面（侧边文件树 + Markdown 阅读区）
+├── deploy/
+│   └── nginx.conf         # Nginx 反向代理配置（HTTPS）
+├── log/                   # 运行日志（自动生成，已 gitignore）
+│   ├── access.log
+│   ├── error.log
+│   └── gunicorn.pid
 └── docs/                  # 示例 Markdown 文件（默认阅读目录）
     ├── 欢迎.md
     └── 指南/
@@ -196,16 +206,100 @@ md_reader/
 }
 ```
 
+## � 生产部署
+
+### 方式一：Docker（推荐）
+
+```bash
+# 编辑 docker-compose.yml 中的卷路径和环境变量，然后：
+docker compose up -d
+```
+
+### 方式二：Gunicorn 直接部署
+
+```bash
+# 安装依赖
+pip install -r requirements.txt gunicorn
+
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入实际值
+
+# 后台启动（日志输出到 log/ 目录）
+gunicorn -c gunicorn.conf.py app:app --daemon
+```
+
+### 日志管理
+
+日志自动写入 `log/` 目录：
+
+```
+log/
+├── access.log      # 访问日志
+├── error.log       # 错误日志
+└── gunicorn.pid    # 进程 PID 文件
+```
+
+常用命令：
+
+```bash
+# 查看实时日志
+tail -f log/access.log
+tail -f log/error.log
+
+# 优雅重启（不中断服务）
+kill -HUP $(cat log/gunicorn.pid)
+
+# 停止服务
+kill $(cat log/gunicorn.pid)
+```
+
+### 方式三：Systemd 服务（Linux 开机自启）
+
+创建 `/etc/systemd/system/md-reader.service`：
+
+```ini
+[Unit]
+Description=KYC 知识库
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/opt/md_reader
+EnvironmentFile=/opt/md_reader/.env
+ExecStart=/opt/md_reader/.venv/bin/gunicorn -c gunicorn.conf.py app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+systemctl enable --now md-reader
+```
+
+### 生产检查清单
+
+| 项目 | 操作 |
+|------|------|
+| ⚠️ 修改密钥 | 设置 `MD_READER_SECRET` 为随机 32+ 字符 |
+| ⚠️ 修改密码 | 编辑 `app.py` 中默认 admin 密码 |
+| ⚠️ 关闭调试 | 设置 `MD_READER_DEBUG=false` |
+| 🔒 启用 HTTPS | 使用 Nginx + Let's Encrypt（参考 `deploy/nginx.conf`） |
+| 📁 挂载数据 | `MD_READER_DIR` 指向实际 Markdown 文件目录 |
+
 ## 🛠️ 技术栈
 
 | 组件 | 技术 |
 |------|------|
 | 后端框架 | [Flask 3.0](https://flask.palletsprojects.com/) |
+| 生产服务器 | [Gunicorn](https://gunicorn.org/) |
 | 用户认证 | [Flask-Login](https://flask-login.readthedocs.io/) |
 | 密码加密 | [Werkzeug Security](https://werkzeug.palletsprojects.com/) |
 | Markdown 渲染 | [Python-Markdown](https://python-markdown.github.io/) |
 | 代码高亮 | [Pygments](https://pygments.org/) |
 | 前端 | 原生 HTML / CSS / JavaScript（无框架依赖） |
+| 容器化 | Docker / Docker Compose |
 
 ## 📝 License
 
