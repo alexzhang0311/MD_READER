@@ -1,0 +1,239 @@
+import os
+import markdown
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from pygments.formatters import HtmlFormatter
+
+import config
+
+app = Flask(__name__)
+app.secret_key = config.SECRET_KEY
+
+# Flask-Login setup
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = '请先登录'
+login_manager.login_message_category = 'warning'
+
+# -------------------------------------------------------------------
+# User model
+# -------------------------------------------------------------------
+class User(UserMixin):
+    def __init__(self, username):
+        self.id = username
+        self.username = username
+
+
+# In-memory user store – initialised from config on first run, but
+# the /register endpoint can add users at runtime.
+_users: dict[str, str] = {}          # username -> password_hash
+
+
+def _ensure_users_loaded():
+    """Lazy-load default users from config (only once)."""
+    if not _users:
+        # Always create the default admin with a *usable* hash
+        _users['admin'] = generate_password_hash('Webank@123')
+        # Merge any extra entries from config
+        for uname, phash in config.USERS.items():
+            if uname not in _users:
+                _users[uname] = phash
+
+
+@login_manager.user_loader
+def load_user(username):
+    _ensure_users_loaded()
+    if username in _users:
+        return User(username)
+    return None
+
+
+# -------------------------------------------------------------------
+# Auth routes
+# -------------------------------------------------------------------
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+
+        _ensure_users_loaded()
+
+        if username in _users and check_password_hash(_users[username], password):
+            user = User(username)
+            login_user(user, remember=True)
+            next_page = request.args.get('next')
+            flash('登录成功！', 'success')
+            return redirect(next_page or url_for('index'))
+        else:
+            flash('用户名或密码错误', 'danger')
+
+    return render_template('login.html')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        confirm  = request.form.get('confirm', '')
+
+        _ensure_users_loaded()
+
+        if not username or not password:
+            flash('用户名和密码不能为空', 'danger')
+        elif len(password) < 6:
+            flash('密码长度至少6位', 'danger')
+        elif password != confirm:
+            flash('两次密码输入不一致', 'danger')
+        elif username in _users:
+            flash('用户名已存在', 'danger')
+        else:
+            _users[username] = generate_password_hash(password)
+            flash('注册成功，请登录', 'success')
+            return redirect(url_for('login'))
+
+    return render_template('register.html')
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('已退出登录', 'info')
+    return redirect(url_for('login'))
+
+
+# -------------------------------------------------------------------
+# Helpers
+# -------------------------------------------------------------------
+def get_safe_path(rel_path: str) -> str | None:
+    """Resolve *rel_path* under MARKDOWN_DIR and reject path traversal."""
+    base = os.path.realpath(config.MARKDOWN_DIR)
+    full = os.path.realpath(os.path.join(base, rel_path))
+    if not full.startswith(base):
+        return None
+    return full
+
+
+def list_markdown_tree(directory: str, rel: str = '') -> list[dict]:
+    """Return a nested list of markdown files and directories."""
+    items = []
+    try:
+        entries = sorted(os.listdir(directory), key=lambda x: (not os.path.isdir(os.path.join(directory, x)), x.lower()))
+    except OSError:
+        return items
+
+    for entry in entries:
+        full = os.path.join(directory, entry)
+        entry_rel = os.path.join(rel, entry).replace('\\', '/')
+
+        if os.path.isdir(full):
+            children = list_markdown_tree(full, entry_rel)
+            if children:  # only show dirs that contain .md files
+                items.append({
+                    'name': entry,
+                    'type': 'directory',
+                    'path': entry_rel,
+                    'children': children,
+                })
+        elif entry.lower().endswith('.md'):
+            items.append({
+                'name': entry,
+                'type': 'file',
+                'path': entry_rel,
+            })
+    return items
+
+
+# -------------------------------------------------------------------
+# Page routes
+# -------------------------------------------------------------------
+@app.route('/')
+@login_required
+def index():
+    return render_template('index.html')
+
+
+# -------------------------------------------------------------------
+# API routes
+# -------------------------------------------------------------------
+@app.route('/api/files')
+@login_required
+def api_files():
+    """Return the markdown file tree as JSON."""
+    tree = list_markdown_tree(config.MARKDOWN_DIR)
+    return jsonify(tree)
+
+
+@app.route('/api/read')
+@login_required
+def api_read():
+    """Read and render a markdown file. Query param: ?path=relative/path.md"""
+    rel_path = request.args.get('path', '')
+    if not rel_path:
+        return jsonify({'error': '缺少 path 参数'}), 400
+
+    full_path = get_safe_path(rel_path)
+    if full_path is None or not os.path.isfile(full_path):
+        return jsonify({'error': '文件不存在'}), 404
+
+    if not full_path.lower().endswith('.md'):
+        return jsonify({'error': '仅支持 Markdown 文件'}), 400
+
+    try:
+        with open(full_path, 'r', encoding='utf-8') as f:
+            raw = f.read()
+    except Exception as e:
+        return jsonify({'error': f'读取文件失败: {e}'}), 500
+
+    md = markdown.Markdown(extensions=[
+        'extra',
+        'codehilite',
+        'toc',
+        'tables',
+        'fenced_code',
+        'sane_lists',
+    ], extension_configs={
+        'codehilite': {
+            'css_class': 'codehilite',
+            'linenums': False,
+        },
+    })
+
+    html = md.convert(raw)
+    toc  = getattr(md, 'toc', '')
+
+    return jsonify({
+        'filename': os.path.basename(full_path),
+        'path': rel_path,
+        'raw': raw,
+        'html': html,
+        'toc': toc,
+    })
+
+
+@app.route('/api/pygments.css')
+@login_required
+def pygments_css():
+    """Return syntax highlight CSS."""
+    formatter = HtmlFormatter(style='monokai')
+    css = formatter.get_style_defs('.codehilite')
+    return css, 200, {'Content-Type': 'text/css'}
+
+
+# -------------------------------------------------------------------
+# Main
+# -------------------------------------------------------------------
+if __name__ == '__main__':
+    # Ensure docs directory exists
+    os.makedirs(config.MARKDOWN_DIR, exist_ok=True)
+    app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG)

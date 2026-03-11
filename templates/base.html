@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Markdown 阅读器{% endblock %}</title>
+    <style>
+        :root {
+            --primary: #4a90d9;
+            --primary-dark: #357abd;
+            --bg: #f5f7fa;
+            --sidebar-bg: #ffffff;
+            --card-bg: #ffffff;
+            --text: #333333;
+            --text-light: #666666;
+            --border: #e1e4e8;
+            --danger: #dc3545;
+            --success: #28a745;
+            --warning: #ffc107;
+            --info: #17a2b8;
+            --radius: 8px;
+            --shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        a { color: var(--primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Flash messages */
+        .flash-container {
+            position: fixed; top: 20px; right: 20px; z-index: 9999;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .flash {
+            padding: 12px 20px; border-radius: var(--radius);
+            color: #fff; font-size: 14px;
+            box-shadow: var(--shadow);
+            animation: slideIn 0.3s ease;
+        }
+        .flash.success { background: var(--success); }
+        .flash.danger  { background: var(--danger); }
+        .flash.warning { background: var(--warning); color: #333; }
+        .flash.info    { background: var(--info); }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to   { transform: translateX(0);   opacity: 1; }
+        }
+
+        /* Auth pages */
+        .auth-wrapper {
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh;
+        }
+        .auth-card {
+            background: var(--card-bg);
+            padding: 40px; border-radius: 12px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+            width: 100%; max-width: 400px;
+        }
+        .auth-card h1 {
+            text-align: center; margin-bottom: 8px;
+            font-size: 24px; color: var(--primary);
+        }
+        .auth-card .subtitle {
+            text-align: center; color: var(--text-light);
+            margin-bottom: 28px; font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 18px;
+        }
+        .form-group label {
+            display: block; margin-bottom: 6px;
+            font-weight: 500; font-size: 14px;
+        }
+        .form-group input {
+            width: 100%; padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 15px; transition: border 0.2s;
+        }
+        .form-group input:focus {
+            outline: none; border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(74,144,217,0.15);
+        }
+        .btn {
+            display: inline-block; padding: 10px 24px;
+            border: none; border-radius: var(--radius);
+            font-size: 15px; font-weight: 500;
+            cursor: pointer; transition: background 0.2s;
+        }
+        .btn-primary {
+            background: var(--primary); color: #fff; width: 100%;
+        }
+        .btn-primary:hover { background: var(--primary-dark); text-decoration: none; }
+        .auth-footer {
+            text-align: center; margin-top: 18px; font-size: 14px; color: var(--text-light);
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-container">
+        {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    {% block body %}{% endblock %}
+
+    <script>
+        // Auto-dismiss flash messages
+        setTimeout(() => {
+            document.querySelectorAll('.flash').forEach(el => {
+                el.style.transition = 'opacity 0.5s';
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 500);
+            });
+        }, 3000);
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
