@@ -154,7 +154,8 @@ md_reader/
 │   ├── register.html      # 注册页面
 │   └── index.html         # 主界面（侧边文件树 + Markdown 阅读区）
 ├── deploy/
-│   └── nginx.conf         # Nginx 反向代理配置（HTTPS）
+│   ├── nginx.conf         # Nginx 反向代理配置（HTTPS）
+│   └── md-reader.service  # Systemd 服务配置文件
 ├── log/                   # 运行日志（自动生成，已 gitignore）
 │   ├── access.log
 │   ├── error.log
@@ -256,27 +257,37 @@ kill $(cat log/gunicorn.pid)
 
 ### 方式三：Systemd 服务（Linux 开机自启）
 
-创建 `/etc/systemd/system/md-reader.service`：
-
-```ini
-[Unit]
-Description=KYC 知识库
-After=network.target
-
-[Service]
-User=www-data
-WorkingDirectory=/opt/md_reader
-EnvironmentFile=/opt/md_reader/.env
-ExecStart=/opt/md_reader/.venv/bin/gunicorn -c gunicorn.conf.py app:app
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
+项目已提供配置文件 `deploy/md-reader.service`，部署步骤：
 
 ```bash
-systemctl enable --now md-reader
+# 1. 复制服务文件到 systemd 目录
+sudo cp deploy/md-reader.service /etc/systemd/system/
+
+# 2. 按需编辑路径（默认 /data/appsystems/MD_READER）
+sudo vim /etc/systemd/system/md-reader.service
+
+# 3. 重载 systemd 配置
+sudo systemctl daemon-reload
+
+# 4. 启用并启动服务（开机自启）
+sudo systemctl enable --now md-reader
 ```
+
+服务管理命令：
+
+```bash
+sudo systemctl start md-reader       # 启动
+sudo systemctl stop md-reader        # 停止
+sudo systemctl restart md-reader     # 重启
+sudo systemctl reload md-reader      # 优雅重载（不中断连接）
+sudo systemctl status md-reader      # 查看状态
+
+# 查看服务日志
+journalctl -u md-reader -f               # 实时日志
+journalctl -u md-reader --since today    # 今天的日志
+```
+
+> 服务文件包含安全加固配置（`PrivateTmp`、`ProtectSystem=strict` 等），异常退出 5 秒后自动重启。
 
 ### 生产检查清单
 
