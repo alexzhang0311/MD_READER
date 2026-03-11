@@ -1,0 +1,17 @@
+services:
+  md-reader:
+    build: .
+    container_name: md-reader
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount your markdown files directory
+      - /path/to/your/markdown/files:/data/markdown:ro
+    environment:
+      - MD_READER_SECRET=your-strong-random-secret-key-here
+      - MD_READER_DEBUG=false
+      - MD_READER_PORT=5000
+    # Or use an env file:
+    # env_file:
+    #   - .env

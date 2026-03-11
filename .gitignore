@@ -27,3 +27,6 @@ desktop.ini
 
 # Environment variables
 .env
+
+# Docker
+docker-compose.override.yml
