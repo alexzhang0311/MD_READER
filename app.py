@@ -115,11 +115,26 @@ def logout():
 # -------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------
-def get_safe_path(rel_path: str) -> str | None:
-    """Resolve *rel_path* under MARKDOWN_DIR and reject path traversal."""
-    base = os.path.realpath(config.MARKDOWN_DIR)
+def get_markdown_roots() -> dict[str, str]:
+    """Return stable root-name -> absolute directory mapping."""
+    roots: dict[str, str] = {}
+    for idx, directory in enumerate(config.MARKDOWN_DIRS, start=1):
+        real_dir = os.path.realpath(directory)
+        base_name = os.path.basename(os.path.normpath(real_dir)) or f'root{idx}'
+        name = base_name
+        suffix = 2
+        while name in roots:
+            name = f'{base_name}-{suffix}'
+            suffix += 1
+        roots[name] = real_dir
+    return roots
+
+
+def get_safe_path(base_dir: str, rel_path: str) -> str | None:
+    """Resolve *rel_path* under *base_dir* and reject path traversal."""
+    base = os.path.realpath(base_dir)
     full = os.path.realpath(os.path.join(base, rel_path))
-    if not full.startswith(base):
+    if full != base and not full.startswith(base + os.sep):
         return None
     return full
 
@@ -170,19 +185,51 @@ def index():
 @login_required
 def api_files():
     """Return the markdown file tree as JSON."""
-    tree = list_markdown_tree(config.MARKDOWN_DIR)
-    return jsonify(tree)
+    roots = get_markdown_roots()
+
+    # Keep old response shape for single root
+    if len(roots) == 1:
+        root_dir = next(iter(roots.values()))
+        return jsonify(list_markdown_tree(root_dir))
+
+    # For multi-root, group by root folder name
+    grouped_tree = []
+    for root_name, root_dir in roots.items():
+        grouped_tree.append({
+            'name': root_name,
+            'type': 'directory',
+            'path': root_name,
+            'children': list_markdown_tree(root_dir, root_name),
+        })
+    return jsonify(grouped_tree)
 
 
 @app.route('/api/read')
 @login_required
 def api_read():
     """Read and render a markdown file. Query param: ?path=relative/path.md"""
-    rel_path = request.args.get('path', '')
+    rel_path = request.args.get('path', '').strip().replace('\\', '/')
     if not rel_path:
         return jsonify({'error': '缺少 path 参数'}), 400
 
-    full_path = get_safe_path(rel_path)
+    roots = get_markdown_roots()
+
+    # Single-root compatibility: keep old path format
+    if len(roots) == 1:
+        base_dir = next(iter(roots.values()))
+        inner_rel_path = rel_path
+    else:
+        clean_path = rel_path.strip('/')
+        parts = clean_path.split('/', 1)
+        root_name = parts[0] if parts else ''
+        inner_rel_path = parts[1] if len(parts) > 1 else ''
+
+        if root_name not in roots or not inner_rel_path:
+            return jsonify({'error': '无效路径，请使用 根目录/文件.md 格式'}), 400
+
+        base_dir = roots[root_name]
+
+    full_path = get_safe_path(base_dir, inner_rel_path)
     if full_path is None or not os.path.isfile(full_path):
         return jsonify({'error': '文件不存在'}), 404
 
@@ -234,6 +281,7 @@ def pygments_css():
 # Main
 # -------------------------------------------------------------------
 if __name__ == '__main__':
-    # Ensure docs directory exists
-    os.makedirs(config.MARKDOWN_DIR, exist_ok=True)
+    # Ensure markdown directories exist
+    for md_dir in config.MARKDOWN_DIRS:
+        os.makedirs(md_dir, exist_ok=True)
     app.run(host=config.HOST, port=config.PORT, debug=config.DEBUG)

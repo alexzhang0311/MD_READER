@@ -10,7 +10,7 @@
 
 | 功能 | 说明 |
 |------|------|
-| 📂 文件树浏览 | 递归展示指定目录下所有 `.md` 文件，支持多级目录折叠 |
+| 📂 文件树浏览 | 支持单目录或多根目录（根分组）展示 `.md` 文件，支持多级目录折叠 |
 | 📖 Markdown 渲染 | 支持表格、代码块、引用、列表、目录等 GFM 扩展语法 |
 | 🎨 代码高亮 | 基于 Pygments 的语法高亮（Monokai 主题），支持数十种语言 |
 | 🔍 文件搜索 | 侧边栏实时搜索过滤文件名 |
@@ -72,7 +72,7 @@ python app.py
 
 | 用户名 | 密码 |
 |--------|------|
-| `admin` | `App@123` |
+| `admin` | `Webank@123` |
 
 > ⚠️ **安全提示**：生产环境中请务必修改默认密码。
 
@@ -81,8 +81,8 @@ python app.py
 编辑 `app.py` 中第 38 行：
 
 ```python
-_users['admin'] = generate_password_hash('App@123')
-#                                         ^^^^^^^^^^ 修改为你的密码
+_users['admin'] = generate_password_hash('Webank@123')
+#                                         ^^^^^^^^^^^^ 修改为你的密码
 ```
 
 ### 注册新用户
@@ -118,20 +118,25 @@ DEBUG = True
 
 | 环境变量 | 说明 | 默认值 |
 |----------|------|--------|
+| `MD_READER_DIRS` | 多个 Markdown 根目录（逗号/分号分隔） | 空 |
 | `MD_READER_DIR` | Markdown 文件目录 | `./docs` |
 | `MD_READER_PORT` | 服务端口 | `5000` |
 | `MD_READER_SECRET` | 会话密钥 | 内置默认值 |
 | `MD_READER_DEBUG` | 调试模式 (`true`/`false`) | `true` |
 
+目录优先级：`MD_READER_DIRS` > `MD_READER_DIR`。
+
 示例：
 
 ```bash
 # Linux / macOS
+export MD_READER_DIRS=/data/md/team-a,/data/md/team-b
 export MD_READER_DIR=/home/user/notes
 export MD_READER_PORT=8080
 python app.py
 
 # Windows PowerShell
+$env:MD_READER_DIRS = "D:\md\team-a;D:\md\team-b"
 $env:MD_READER_DIR = "D:\my-notes"
 $env:MD_READER_PORT = "8080"
 python app.py
@@ -173,13 +178,15 @@ md_reader/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/files` | 获取 Markdown 文件树（JSON） |
-| GET | `/api/read?path=<相对路径>` | 读取并渲染指定 Markdown 文件 |
+| GET | `/api/files` | 获取 Markdown 文件树（JSON，支持多根分组） |
+| GET | `/api/read?path=<相对路径>` | 读取并渲染指定 Markdown 文件（多根模式下为 `根名/文件.md`） |
 | GET | `/api/pygments.css` | 获取代码高亮 CSS 样式 |
 
 ### 响应示例
 
 **GET** `/api/files`
+
+单根目录示例：
 
 ```json
 [
@@ -190,6 +197,29 @@ md_reader/
     "path": "指南",
     "children": [
       { "name": "使用指南.md", "type": "file", "path": "指南/使用指南.md" }
+    ]
+  }
+]
+```
+
+多根目录示例：
+
+```json
+[
+  {
+    "name": "team-a",
+    "type": "directory",
+    "path": "team-a",
+    "children": [
+      { "name": "A.md", "type": "file", "path": "team-a/A.md" }
+    ]
+  },
+  {
+    "name": "team-b",
+    "type": "directory",
+    "path": "team-b",
+    "children": [
+      { "name": "B.md", "type": "file", "path": "team-b/B.md" }
     ]
   }
 ]
@@ -207,8 +237,7 @@ md_reader/
 }
 ```
 
-## � 生产部署
-
+## 🚢 生产部署
 ### 方式一：Docker（推荐）
 
 ```bash
@@ -288,6 +317,7 @@ journalctl -u md-reader --since today    # 今天的日志
 ```
 
 > 服务文件包含安全加固配置（`PrivateTmp`、`ProtectSystem=strict` 等），异常退出 5 秒后自动重启。
+> 若 Markdown 目录位于 `/home/...`，请保持 `ProtectHome=false`（服务文件中已配置）。
 
 ### 生产检查清单
 
@@ -297,7 +327,7 @@ journalctl -u md-reader --since today    # 今天的日志
 | ⚠️ 修改密码 | 编辑 `app.py` 中默认 admin 密码 |
 | ⚠️ 关闭调试 | 设置 `MD_READER_DEBUG=false` |
 | 🔒 启用 HTTPS | 使用 Nginx + Let's Encrypt（参考 `deploy/nginx.conf`） |
-| 📁 挂载数据 | `MD_READER_DIR` 指向实际 Markdown 文件目录 |
+| 📁 挂载数据 | 单目录用 `MD_READER_DIR`，多目录用 `MD_READER_DIRS` |
 
 ## 🛠️ 技术栈
 
