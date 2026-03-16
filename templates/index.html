@@ -97,12 +97,26 @@
         border-bottom: 1px solid var(--border);
         display: flex; align-items: center; justify-content: space-between;
     }
+    .content-actions {
+        display: flex; align-items: center; gap: 12px;
+    }
     .content-header h2 {
         font-size: 18px; font-weight: 600;
         display: flex; align-items: center; gap: 8px;
     }
     .content-header .breadcrumb {
         font-size: 13px; color: var(--text-light);
+    }
+    .btn-download {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 8px 14px; border: 1px solid var(--border);
+        border-radius: var(--radius); background: #fff;
+        color: var(--text); font-size: 13px; cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .btn-download:hover {
+        color: var(--primary); border-color: var(--primary);
+        background: #f7fbff; text-decoration: none;
     }
 
     .markdown-body {
@@ -289,7 +303,13 @@
             content.innerHTML = `
                 <div class="content-header">
                     <h2><span>📄</span> ${escapeHtml(data.filename)}</h2>
-                    <span class="breadcrumb">${escapeHtml(data.path)}</span>
+                    <div class="content-actions">
+                        <span class="breadcrumb">${escapeHtml(data.path)}</span>
+                        <button class="btn-download" type="button" onclick="downloadFile(${JSON.stringify(path)})">
+                            <span>⬇</span>
+                            <span>下载</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="markdown-body">${data.html}</div>
             `;
@@ -336,6 +356,11 @@
     // ── Mobile sidebar toggle ──
     window.toggleSidebar = function() {
         document.getElementById('sidebar').classList.toggle('show');
+    };
+
+    window.downloadFile = function(path) {
+        if (!path) return;
+        window.location.href = '/api/download?path=' + encodeURIComponent(path);
     };
 
     // ── Util ──

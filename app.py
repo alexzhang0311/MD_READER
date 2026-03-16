@@ -1,6 +1,6 @@
 import os
 import markdown
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from pygments.formatters import HtmlFormatter
@@ -139,6 +139,34 @@ def get_safe_path(base_dir: str, rel_path: str) -> str | None:
     return full
 
 
+def resolve_markdown_request_path(request_path: str) -> tuple[str, str] | tuple[None, None]:
+    """Resolve request path to (full_path, normalized_request_path)."""
+    rel_path = request_path.strip().replace('\\', '/')
+    if not rel_path:
+        return None, None
+
+    roots = get_markdown_roots()
+
+    if len(roots) == 1:
+        base_dir = next(iter(roots.values()))
+        inner_rel_path = rel_path.strip('/')
+        normalized_path = inner_rel_path
+    else:
+        clean_path = rel_path.strip('/')
+        parts = clean_path.split('/', 1)
+        root_name = parts[0] if parts else ''
+        inner_rel_path = parts[1] if len(parts) > 1 else ''
+
+        if root_name not in roots or not inner_rel_path:
+            return None, None
+
+        base_dir = roots[root_name]
+        normalized_path = clean_path
+
+    full_path = get_safe_path(base_dir, inner_rel_path)
+    return full_path, normalized_path
+
+
 def list_markdown_tree(directory: str, rel: str = '') -> list[dict]:
     """Return a nested list of markdown files and directories."""
     items = []
@@ -208,28 +236,11 @@ def api_files():
 @login_required
 def api_read():
     """Read and render a markdown file. Query param: ?path=relative/path.md"""
-    rel_path = request.args.get('path', '').strip().replace('\\', '/')
-    if not rel_path:
+    rel_path = request.args.get('path', '')
+    if not rel_path.strip():
         return jsonify({'error': '缺少 path 参数'}), 400
 
-    roots = get_markdown_roots()
-
-    # Single-root compatibility: keep old path format
-    if len(roots) == 1:
-        base_dir = next(iter(roots.values()))
-        inner_rel_path = rel_path
-    else:
-        clean_path = rel_path.strip('/')
-        parts = clean_path.split('/', 1)
-        root_name = parts[0] if parts else ''
-        inner_rel_path = parts[1] if len(parts) > 1 else ''
-
-        if root_name not in roots or not inner_rel_path:
-            return jsonify({'error': '无效路径，请使用 根目录/文件.md 格式'}), 400
-
-        base_dir = roots[root_name]
-
-    full_path = get_safe_path(base_dir, inner_rel_path)
+    full_path, normalized_path = resolve_markdown_request_path(rel_path)
     if full_path is None or not os.path.isfile(full_path):
         return jsonify({'error': '文件不存在'}), 404
 
@@ -261,11 +272,34 @@ def api_read():
 
     return jsonify({
         'filename': os.path.basename(full_path),
-        'path': rel_path,
+        'path': normalized_path,
         'raw': raw,
         'html': html,
         'toc': toc,
     })
+
+
+@app.route('/api/download')
+@login_required
+def api_download():
+    """Download a markdown file. Query param: ?path=relative/path.md"""
+    rel_path = request.args.get('path', '')
+    if not rel_path.strip():
+        return jsonify({'error': '缺少 path 参数'}), 400
+
+    full_path, _ = resolve_markdown_request_path(rel_path)
+    if full_path is None or not os.path.isfile(full_path):
+        return jsonify({'error': '文件不存在'}), 404
+
+    if not full_path.lower().endswith('.md'):
+        return jsonify({'error': '仅支持 Markdown 文件'}), 400
+
+    return send_file(
+        full_path,
+        as_attachment=True,
+        download_name=os.path.basename(full_path),
+        mimetype='text/markdown; charset=utf-8',
+    )
 
 
 @app.route('/api/pygments.css')
