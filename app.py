@@ -3,6 +3,8 @@ import markdown
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, send_file
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
+from pygments import highlight
+from pygments.lexers import get_lexer_by_name
 from pygments.formatters import HtmlFormatter
 
 import config
@@ -29,6 +31,10 @@ class User(UserMixin):
 # In-memory user store – initialised from config on first run, but
 # the /register endpoint can add users at runtime.
 _users: dict[str, str] = {}          # username -> password_hash
+
+MARKDOWN_EXTENSIONS = {'.md', '.markdown'}
+YAML_EXTENSIONS = {'.yaml', '.yml'}
+SUPPORTED_EXTENSIONS = MARKDOWN_EXTENSIONS | YAML_EXTENSIONS
 
 
 def _ensure_users_loaded():
@@ -167,8 +173,16 @@ def resolve_markdown_request_path(request_path: str) -> tuple[str, str] | tuple[
     return full_path, normalized_path
 
 
+def get_file_extension(path: str) -> str:
+    return os.path.splitext(path)[1].lower()
+
+
+def is_supported_file(path: str) -> bool:
+    return get_file_extension(path) in SUPPORTED_EXTENSIONS
+
+
 def list_markdown_tree(directory: str, rel: str = '') -> list[dict]:
-    """Return a nested list of markdown files and directories."""
+    """Return a nested list of supported files and directories."""
     items = []
     try:
         entries = sorted(os.listdir(directory), key=lambda x: (not os.path.isdir(os.path.join(directory, x)), x.lower()))
@@ -181,14 +195,14 @@ def list_markdown_tree(directory: str, rel: str = '') -> list[dict]:
 
         if os.path.isdir(full):
             children = list_markdown_tree(full, entry_rel)
-            if children:  # only show dirs that contain .md files
+            if children:  # only show dirs that contain supported files
                 items.append({
                     'name': entry,
                     'type': 'directory',
                     'path': entry_rel,
                     'children': children,
                 })
-        elif entry.lower().endswith('.md'):
+        elif is_supported_file(entry):
             items.append({
                 'name': entry,
                 'type': 'file',
@@ -235,7 +249,7 @@ def api_files():
 @app.route('/api/read')
 @login_required
 def api_read():
-    """Read and render a markdown file. Query param: ?path=relative/path.md"""
+    """Read and render a supported file. Query param: ?path=relative/path"""
     rel_path = request.args.get('path', '')
     if not rel_path.strip():
         return jsonify({'error': '缺少 path 参数'}), 400
@@ -244,8 +258,9 @@ def api_read():
     if full_path is None or not os.path.isfile(full_path):
         return jsonify({'error': '文件不存在'}), 404
 
-    if not full_path.lower().endswith('.md'):
-        return jsonify({'error': '仅支持 Markdown 文件'}), 400
+    ext = get_file_extension(full_path)
+    if ext not in SUPPORTED_EXTENSIONS:
+        return jsonify({'error': '仅支持 Markdown/YAML 文件'}), 400
 
     try:
         with open(full_path, 'r', encoding='utf-8') as f:
@@ -253,22 +268,27 @@ def api_read():
     except Exception as e:
         return jsonify({'error': f'读取文件失败: {e}'}), 500
 
-    md = markdown.Markdown(extensions=[
-        'extra',
-        'codehilite',
-        'toc',
-        'tables',
-        'fenced_code',
-        'sane_lists',
-    ], extension_configs={
-        'codehilite': {
-            'css_class': 'codehilite',
-            'linenums': False,
-        },
-    })
-
-    html = md.convert(raw)
-    toc  = getattr(md, 'toc', '')
+    if ext in MARKDOWN_EXTENSIONS:
+        md = markdown.Markdown(extensions=[
+            'extra',
+            'codehilite',
+            'toc',
+            'tables',
+            'fenced_code',
+            'sane_lists',
+        ], extension_configs={
+            'codehilite': {
+                'css_class': 'codehilite',
+                'linenums': False,
+            },
+        })
+        html = md.convert(raw)
+        toc = getattr(md, 'toc', '')
+    else:
+        lexer = get_lexer_by_name('yaml')
+        formatter = HtmlFormatter(cssclass='codehilite')
+        html = highlight(raw, lexer, formatter)
+        toc = ''
 
     return jsonify({
         'filename': os.path.basename(full_path),
@@ -282,7 +302,7 @@ def api_read():
 @app.route('/api/download')
 @login_required
 def api_download():
-    """Download a markdown file. Query param: ?path=relative/path.md"""
+    """Download a supported file. Query param: ?path=relative/path"""
     rel_path = request.args.get('path', '')
     if not rel_path.strip():
         return jsonify({'error': '缺少 path 参数'}), 400
@@ -291,14 +311,22 @@ def api_download():
     if full_path is None or not os.path.isfile(full_path):
         return jsonify({'error': '文件不存在'}), 404
 
-    if not full_path.lower().endswith('.md'):
-        return jsonify({'error': '仅支持 Markdown 文件'}), 400
+    ext = get_file_extension(full_path)
+    if ext not in SUPPORTED_EXTENSIONS:
+        return jsonify({'error': '仅支持 Markdown/YAML 文件'}), 400
+
+    if ext in MARKDOWN_EXTENSIONS:
+        mimetype = 'text/markdown; charset=utf-8'
+    elif ext in YAML_EXTENSIONS:
+        mimetype = 'application/x-yaml; charset=utf-8'
+    else:
+        mimetype = 'application/octet-stream'
 
     return send_file(
         full_path,
         as_attachment=True,
         download_name=os.path.basename(full_path),
-        mimetype='text/markdown; charset=utf-8',
+        mimetype=mimetype,
     )
 
 

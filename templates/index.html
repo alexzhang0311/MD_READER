@@ -216,7 +216,7 @@
     <main class="content" id="content">
         <div class="content-placeholder" id="placeholder">
             <div class="big-icon">📄</div>
-            <div>请从左侧选择一个 Markdown 文件开始阅读</div>
+            <div>请从左侧选择一个 Markdown / YAML 文件开始阅读</div>
         </div>
     </main>
 </div>
@@ -227,6 +227,13 @@
 (function() {
     let fileData = [];
     let currentPath = null;
+
+    function getFileIcon(pathOrName) {
+        const value = (pathOrName || '').toLowerCase();
+        if (value.endsWith('.yaml') || value.endsWith('.yml')) return '🟨';
+        if (value.endsWith('.md') || value.endsWith('.markdown')) return '📝';
+        return '📄';
+    }
 
     // ── Load file tree ──
     async function loadFileTree() {
@@ -245,7 +252,7 @@
         container = container || document.getElementById('fileTree');
         container.innerHTML = '';
         if (items.length === 0) {
-            container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light);">暂无 Markdown 文件</div>';
+            container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-light);">暂无可读文件（Markdown / YAML）</div>';
             return;
         }
         items.forEach(item => {
@@ -270,7 +277,8 @@
                 renderTree(item.children, children);
                 div.appendChild(children);
             } else {
-                label.innerHTML = '<span class="icon">📄</span>' + escapeHtml(item.name);
+                const icon = getFileIcon(item.path || item.name);
+                label.innerHTML = '<span class="icon">' + icon + '</span>' + escapeHtml(item.name);
                 label.dataset.path = item.path;
                 label.onclick = (e) => {
                     e.stopPropagation();
@@ -299,10 +307,11 @@
             const resp = await fetch('/api/read?path=' + encodeURIComponent(path));
             if (!resp.ok) throw new Error('读取失败');
             const data = await resp.json();
+            const fileIcon = getFileIcon(data.path || data.filename);
 
             content.innerHTML = `
                 <div class="content-header">
-                    <h2><span>📄</span> ${escapeHtml(data.filename)}</h2>
+                    <h2><span>${fileIcon}</span> ${escapeHtml(data.filename)}</h2>
                     <div class="content-actions">
                         <span class="breadcrumb">${escapeHtml(data.path)}</span>
                         <button class="btn-download" type="button" onclick="downloadFile(${JSON.stringify(path)})">
